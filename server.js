@@ -21,15 +21,16 @@ const supabase = createClient(
 // ========== MIDDLEWARE SETUP ==========
 app.use(helmet());
 
-// FIXED: Removed trailing slash and added more origins
+// CORS configuration for Render deployment
 app.use(cors({
   origin: [
     'http://localhost:3000',
     'http://localhost:5500',
     'http://127.0.0.1:5500',
-    'https://onremote-attendance.netlify.app', // Fixed: removed trailing slash
-    'https://onremote-attendance.netlify.app/'  // Keep both just in case
-  ],
+    'https://onremote-attendance.netlify.app',
+    'https://onremote-attendance.netlify.app/',
+    process.env.FRONTEND_URL // Add your frontend URL in environment variables
+  ].filter(Boolean), // Remove any undefined values
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
@@ -122,7 +123,45 @@ async function logAdminAction(adminId, action, details) {
   }
 }
 
-// ========== NEW: OFFICE SETTINGS ENDPOINT ==========
+// ========== ROOT ROUTE (IMPORTANT FOR RENDER) ==========
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Attendance System API is running!',
+    version: '1.0.0',
+    endpoints: {
+      health: '/health',
+      admin: {
+        login: 'POST /admin/login',
+        employees: 'GET /employees',
+        addEmployee: 'POST /employees',
+        updateEmployee: 'PUT /employees/:id',
+        deleteEmployee: 'DELETE /employees/:id',
+        allAttendance: 'GET /admin/attendance'
+      },
+      employee: {
+        login: 'POST /auth/login',
+        punch: 'POST /attendance/punch',
+        attendance: 'GET /attendance/:id'
+      },
+      settings: {
+        office: 'GET /settings/office'
+      }
+    }
+  });
+});
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'Attendance system is running',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// ========== OFFICE SETTINGS ENDPOINT ==========
 app.get('/settings/office', authenticateToken, (req, res) => {
   res.json({
     success: true,
@@ -324,7 +363,7 @@ app.delete('/employees/:id', authenticateToken, authenticateAdmin, async (req, r
   }
 });
 
-// ========== NEW: GET ALL ATTENDANCE FOR ADMIN ==========
+// Get all attendance for admin
 app.get('/admin/attendance', authenticateToken, authenticateAdmin, async (req, res) => {
   try {
     const { data: attendance, error } = await supabase
@@ -498,30 +537,39 @@ app.get('/attendance/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// ========== STATIC FILES & ROUTES ==========
-
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'Attendance system is running',
-    timestamp: new Date().toISOString()
+// ========== ERROR HANDLING ==========
+// 404 handler should be LAST
+app.use((req, res) => {
+  res.status(404).json({ 
+    success: false, 
+    error: 'Route not found',
+    availableEndpoints: [
+      'GET /',
+      'GET /health',
+      'POST /admin/login',
+      'POST /auth/login',
+      'GET /settings/office',
+      'POST /attendance/punch',
+      'GET /attendance/:id',
+      'GET /employees',
+      'POST /employees',
+      'PUT /employees/:id',
+      'DELETE /employees/:id',
+      'GET /admin/attendance'
+    ]
   });
 });
 
-// ========== ERROR HANDLING ==========
-app.use((req, res) => {
-  res.status(404).json({ success: false, error: 'Route not found' });
-});
-
+// Global error handler
 app.use((error, req, res, next) => {
   console.error('Server error:', error);
   res.status(500).json({ success: false, error: 'Internal server error' });
 });
 
 // ========== SERVER START ==========
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Attendance system running on port ${PORT}`);
   console.log(`📍 Office location: ${process.env.OFFICE_LATITUDE}, ${process.env.OFFICE_LONGITUDE}`);
   console.log(`📏 Office radius: ${process.env.OFFICE_RADIUS}m`);
+  console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
